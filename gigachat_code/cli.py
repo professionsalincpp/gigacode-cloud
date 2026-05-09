@@ -1,104 +1,80 @@
 #!/usr/bin/env python3
-"""
-GigaChat Code - аналог Claude Code с использованием GigaChat API
-Главный файл запуска приложения
-"""
-
+"""GigaChat Code Assistant - CLI приложение."""
 import sys
 import argparse
 
-from .config import Config
-from .controllers import SetupController, ChatController
-from .views import TerminalView
-
-
-def setup_command(args, config: Config, view: TerminalView) -> int:
-    """Команда настройки"""
-    controller = SetupController(config, view)
-    success = controller.run_setup()
-    return 0 if success else 1
-
-
-def chat_command(args, config: Config, view: TerminalView) -> int:
-    """Команда чата"""
-    controller = ChatController(config, view)
-    controller.run()
-    return 0
-
-
-def config_command(args, config: Config, view: TerminalView) -> int:
-    """Показать конфигурацию"""
-    if config.is_configured():
-        view.show_config(config.get_all())
-    else:
-        view.print_info("Конфигурация не выполнена. Используйте 'gigachat-code setup'")
-    return 0
-
-
-def version_command(args, config: Config, view: TerminalView) -> int:
-    """Показать версию"""
-    from . import __version__
-    view.console.print(f"[bold magenta]GigaChat Code[/bold magenta] v{__version__}")
-    return 0
-
-
-COMMANDS = {
-    'setup': {
-        'help': 'Настроить API ключ и параметры',
-        'func': setup_command
-    },
-    'chat': {
-        'help': 'Запустить интерактивный чат',
-        'func': chat_command
-    },
-    'config': {
-        'help': 'Показать текущую конфигурацию',
-        'func': config_command
-    },
-    'version': {
-        'help': 'Показать версию приложения',
-        'func': version_command
-    }
-}
+from gigachat_code.models.config import ConfigManager
+from gigachat_code.views.terminal_view import TerminalView
+from gigachat_code.controllers.setup_controller import SetupController
+from gigachat_code.controllers.chat_controller import ChatController
 
 
 def main():
-    """Точка входа в приложение"""
+    """Точка входа приложения."""
     parser = argparse.ArgumentParser(
-        prog='gigachat-code',
-        description='GigaChat Code - аналог Claude Code с использованием GigaChat API'
+        description="GigaChat Code Assistant - ваш помощник для работы с кодом",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Примеры использования:
+  %(prog)s setup     - Запустить мастер настройки API
+  %(prog)s chat      - Запустить интерактивный чат
+  %(prog)s config    - Показать текущую конфигурацию
+        """
     )
     
     subparsers = parser.add_subparsers(dest='command', help='Доступные команды')
     
-    for cmd_name, cmd_info in COMMANDS.items():
-        subparsers.add_parser(cmd_name, help=cmd_info['help'])
+    # Команда setup
+    setup_parser = subparsers.add_parser('setup', help='Настроить API ключи GigaChat')
     
-    # Если команда не указана, показываем справку
+    # Команда chat
+    chat_parser = subparsers.add_parser('chat', help='Запустить интерактивный чат')
+    
+    # Команда config
+    config_parser = subparsers.add_parser('config', help='Показать текущую конфигурацию')
+    
     args = parser.parse_args()
     
-    # Инициализация общих компонентов
-    config = Config()
+    # Создаем общие компоненты
     view = TerminalView()
+    config_manager = ConfigManager()
     
-    if args.command is None:
-        # Запуск чата по умолчанию
-        args.command = 'chat'
+    if args.command == 'setup':
+        # Запуск мастера настройки
+        controller = SetupController(view, config_manager)
+        success = controller.run_setup()
+        sys.exit(0 if success else 1)
     
-    # Выполнение команды
-    if args.command in COMMANDS:
-        try:
-            return COMMANDS[args.command]['func'](args, config, view)
-        except KeyboardInterrupt:
-            view.console.print("\n[yellow]Прервано пользователем[/yellow]")
-            return 130
-        except Exception as e:
-            view.print_error(f"Произошла ошибка: {str(e)}")
-            return 1
+    elif args.command == 'chat':
+        # Запуск чата
+        controller = ChatController(view, config_manager)
+        controller.run_chat_loop()
+        sys.exit(0)
+    
+    elif args.command == 'config':
+        # Показать конфигурацию
+        config = config_manager.load()
+        view.show_config(config.to_dict())
+        sys.exit(0)
+    
     else:
-        parser.print_help()
-        return 1
+        # По умолчанию показываем приветствие и справку
+        view.print_welcome()
+        
+        # Проверяем настроен ли API
+        config = config_manager.load()
+        if not config.is_valid():
+            view.print_warning("API не настроен!")
+            view.print_info("Запустите настройку командой:")
+            print("\n  python -m gigachat_code.cli setup\n")
+            view.print_info("Или используйте /setup внутри чата")
+        else:
+            view.print_success("API настроен и готов к работе!")
+            view.print_info("Запустите чат командой:")
+            print("\n  python -m gigachat_code.cli chat\n")
+        
+        sys.exit(0)
 
 
 if __name__ == '__main__':
-    sys.exit(main())
+    main()
