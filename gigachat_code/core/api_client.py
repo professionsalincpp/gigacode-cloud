@@ -1,6 +1,8 @@
 """Клиент для работы с GigaChat API."""
 import requests
 import base64
+import uuid
+import time
 import warnings
 from typing import List, Optional
 from ..models.config import GigaChatConfig
@@ -20,6 +22,10 @@ class GigaChatClient:
         self._access_token: Optional[str] = None
         self._token_expires: Optional[float] = None
     
+    def _generate_rq_uid(self) -> str:
+        """Генерирует уникальный ID запроса (UUID v4)."""
+        return str(uuid.uuid4())
+    
     def _get_auth_header(self) -> str:
         """Получить заголовок авторизации."""
         credentials = f"{self.config.client_id}:{self.config.client_secret}"
@@ -30,13 +36,12 @@ class GigaChatClient:
         """Получить access token для API."""
         # Если токен еще действителен, возвращаем его
         if self._access_token and self._token_expires:
-            import time
             if time.time() < self._token_expires - 60:  # 60 секунд запаса
                 return self._access_token
         
         headers = {
             "Authorization": self._get_auth_header(),
-            "RqUID": "00000000-0000-0000-0000-000000000000",
+            "RqUID": self._generate_rq_uid(),  # Генерируем уникальный UUID для каждого запроса
             "Content-Type": "application/x-www-form-urlencoded"
         }
         
@@ -79,7 +84,6 @@ class GigaChatClient:
             
             # Сохраняем время истечения токена (если есть в ответе)
             expires_in = token_data.get('expires_in', 3600)
-            import time
             self._token_expires = time.time() + expires_in
             
             return self._access_token
