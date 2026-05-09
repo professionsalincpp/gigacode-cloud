@@ -2,6 +2,7 @@
 Модуль ядра приложения
 """
 
-from .assistant import GigaChatClient, FileSystemTool, CodeAssistant
+from .api_client import GigaChatClient
+from .assistant import FileSystemTool, CodeAssistant
 
 __all__ = ['GigaChatClient', 'FileSystemTool', 'CodeAssistant']
