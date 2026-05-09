@@ -1,9 +1,15 @@
 """Клиент для работы с GigaChat API."""
 import requests
 import base64
+import warnings
 from typing import List, Optional
 from ..models.config import GigaChatConfig
 from ..models.message import APIResponse
+
+# Отключаем предупреждения о самоподписанных SSL сертификатах
+warnings.filterwarnings('ignore', message='Unverified HTTPS request')
+urllib3 = requests.packages.urllib3
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 class GigaChatClient:
@@ -12,6 +18,7 @@ class GigaChatClient:
     def __init__(self, config: GigaChatConfig):
         self.config = config
         self._access_token: Optional[str] = None
+        self._token_expires: Optional[float] = None
     
     def _get_auth_header(self) -> str:
         """Получить заголовок авторизации."""
@@ -21,8 +28,11 @@ class GigaChatClient:
     
     def _get_access_token(self) -> str:
         """Получить access token для API."""
-        if self._access_token:
-            return self._access_token
+        # Если токен еще действителен, возвращаем его
+        if self._access_token and self._token_expires:
+            import time
+            if time.time() < self._token_expires - 60:  # 60 секунд запаса
+                return self._access_token
         
         headers = {
             "Authorization": self._get_auth_header(),
@@ -40,34 +50,55 @@ class GigaChatClient:
                 headers=headers,
                 data=data,
                 timeout=30,
-                verify=False  # Sber использует самоподписанные сертификаты
+                verify=False
             )
+            
+            if response.status_code == 401:
+                raise RuntimeError(
+                    "Ошибка аутентификации (401): Неверные Client ID или Client Secret.\n"
+                    "Проверьте ваши учетные данные в настройках.\n"
+                    "Запустите: python -m gigachat_code.cli setup"
+                )
+            
+            if response.status_code == 403:
+                raise RuntimeError(
+                    "Доступ запрещен (403): Возможно, ваш аккаунт не активирован для GigaChat API.\n"
+                    "Убедитесь, что:\n"
+                    "  1. Вы получили credentials в SberBank Developer Portal\n"
+                    "  2. Ваш проект имеет доступ к GigaChat API\n"
+                    "  3. Квоты API не исчерпаны"
+                )
+            
             response.raise_for_status()
             
             token_data = response.json()
             self._access_token = token_data.get('access_token')
             
             if not self._access_token:
-                raise ValueError("Не удалось получить access token")
+                raise ValueError("Не удалось получить access token из ответа API")
+            
+            # Сохраняем время истечения токена (если есть в ответе)
+            expires_in = token_data.get('expires_in', 3600)
+            import time
+            self._token_expires = time.time() + expires_in
             
             return self._access_token
             
-        except requests.exceptions.SSLError:
-            # Попытка без проверки SSL
-            response = requests.post(
-                self.config.auth_url,
-                headers=headers,
-                data=data,
-                timeout=30,
-                verify=False
+        except requests.exceptions.ConnectionError as e:
+            raise RuntimeError(
+                "Ошибка подключения к серверу аутентификации.\n"
+                "Проверьте интернет-соединение и URL сервера."
             )
-            response.raise_for_status()
-            token_data = response.json()
-            self._access_token = token_data.get('access_token')
-            return self._access_token
-        
+        except requests.exceptions.Timeout:
+            raise RuntimeError(
+                "Превышено время ожидания от сервера аутентификации.\n"
+                "Попробуйте позже."
+            )
         except Exception as e:
-            raise RuntimeError(f"Ошибка аутентификации: {str(e)}")
+            error_msg = str(e)
+            if "401" in error_msg or "403" in error_msg:
+                raise
+            raise RuntimeError(f"Ошибка аутентификации: {error_msg}")
     
     def send_message(self, messages: List[dict], temperature: float = 0.7) -> APIResponse:
         """
@@ -102,6 +133,31 @@ class GigaChatClient:
                 timeout=120,
                 verify=False
             )
+            
+            if response.status_code == 401:
+                # Токен мог истечь, пробуем получить новый
+                self._access_token = None
+                access_token = self._get_access_token()
+                headers["Authorization"] = f"Bearer {access_token}"
+                response = requests.post(
+                    self.config.api_url,
+                    headers=headers,
+                    json=payload,
+                    timeout=120,
+                    verify=False
+                )
+            
+            if response.status_code == 403:
+                return APIResponse(
+                    success=False,
+                    content="",
+                    model=self.config.model,
+                    error=(
+                        "Доступ запрещен (403): Проверьте права доступа к API.\n"
+                        "Убедитесь, что ваш проект имеет доступ к GigaChat API."
+                    )
+                )
+            
             response.raise_for_status()
             
             return APIResponse.from_json(response.json())

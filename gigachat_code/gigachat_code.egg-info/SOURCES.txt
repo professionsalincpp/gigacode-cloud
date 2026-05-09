@@ -1,0 +1,8 @@
+README.md
+pyproject.toml
+gigachat_code.egg-info/PKG-INFO
+gigachat_code.egg-info/SOURCES.txt
+gigachat_code.egg-info/dependency_links.txt
+gigachat_code.egg-info/entry_points.txt
+gigachat_code.egg-info/requires.txt
+gigachat_code.egg-info/top_level.txt

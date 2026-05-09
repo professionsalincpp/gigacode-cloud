@@ -1,0 +1,2 @@
+[console_scripts]
+gigachat-code = gigachat_code.cli:main

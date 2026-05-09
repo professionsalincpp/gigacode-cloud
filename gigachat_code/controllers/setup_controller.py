@@ -1,6 +1,7 @@
 """Контроллер для настройки API."""
 from ..models.config import ConfigManager, GigaChatConfig
 from ..views.terminal_view import TerminalView
+from ..core.api_client import GigaChatClient
 
 
 class SetupController:
@@ -26,6 +27,38 @@ class SetupController:
                 client_id=credentials['client_id'],
                 client_secret=credentials['client_secret']
             )
+            
+            # Проверяем credentials перед сохранением
+            self.view.print_info("\nПроверка учетных данных...")
+            with self.view.show_typing_indicator() as live:
+                try:
+                    client = GigaChatClient(config)
+                    # Пробуем получить токен
+                    client._get_access_token()
+                    self.view.print_success("✅ Учетные данные верны!")
+                except RuntimeError as e:
+                    error_msg = str(e)
+                    if "401" in error_msg:
+                        self.view.print_error(
+                            "Неверные Client ID или Client Secret!\n"
+                            "Проверьте их в портале разработчика Sber."
+                        )
+                        return False
+                    elif "403" in error_msg:
+                        self.view.print_error(
+                            "Доступ запрещен!\n"
+                            "Убедитесь, что:\n"
+                            "  • Ваш проект подключен к GigaChat API\n"
+                            "  • Квоты API не исчерпаны\n"
+                            "  • Аккаунт активен"
+                        )
+                        return False
+                    else:
+                        self.view.print_error(f"Ошибка проверки: {error_msg}")
+                        return False
+                except Exception as e:
+                    self.view.print_error(f"Ошибка подключения: {str(e)}")
+                    return False
             
             # Сохраняем конфигурацию
             if self.config_manager.save(config):
